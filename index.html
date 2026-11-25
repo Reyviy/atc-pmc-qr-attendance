@@ -207,6 +207,15 @@
     window.addEventListener("message", function(event) {
       // Accept responses only from our bridge iframe.
       if (event.source !== bridge.contentWindow) return;
+      
+      if (
+        event.data &&
+        event.data.type === "ATC_PMC_BRIDGE_READY"
+      ) {
+        connection.textContent =
+          "Apps Script bridge is ready.";
+        return;
+      }
 
       if (
         !event.data ||
