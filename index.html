@@ -1,0 +1,432 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>ATC-PMC Guest QR Attendance</title>
+
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 18px;
+      font-family: Arial, sans-serif;
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+
+    .container {
+      max-width: 540px;
+      margin: auto;
+      background: white;
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 5px 20px #00000012;
+    }
+
+    h1, h2, p {
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 22px;
+      margin: 4px 0;
+    }
+
+    .subtitle {
+      color: #64748b;
+      margin: 8px 0 18px;
+    }
+
+    #reader {
+      width: 100%;
+      margin: 12px auto;
+    }
+
+    #result {
+      border-radius: 12px;
+      padding: 18px;
+      margin-top: 16px;
+      text-align: center;
+      background: #e2e8f0;
+      min-height: 110px;
+    }
+
+    .success {
+      background: #dcfce7 !important;
+      color: #166534;
+    }
+
+    .error {
+      background: #fee2e2 !important;
+      color: #991b1b;
+    }
+
+    .duplicate {
+      background: #fef3c7 !important;
+      color: #92400e;
+    }
+
+    .attendee {
+      font-size: 21px;
+      font-weight: bold;
+      overflow-wrap: anywhere;
+    }
+
+    .table {
+      font-size: 42px;
+      font-weight: bold;
+      margin: 14px 0;
+    }
+
+    .time {
+      font-size: 14px;
+      margin-top: 8px;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 0;
+      border-radius: 9px;
+      padding: 13px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    #start {
+      background: #2563eb;
+      color: white;
+    }
+
+    #next {
+      background: #0f766e;
+      color: white;
+    }
+
+    #stop {
+      background: #64748b;
+      color: white;
+    }
+
+    #next:disabled,
+    #stop:disabled {
+      opacity: .45;
+      cursor: default;
+    }
+
+    #connection {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 14px;
+    }
+
+    iframe {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      border: 0;
+      left: -10px;
+      top: -10px;
+    }
+  </style>
+</head>
+
+<body>
+  <main class="container">
+    <h1>ATC-PMC</h1>
+    <h2>Guest QR Attendance</h2>
+
+    <p class="subtitle">
+      Scan an attendee QR code to record attendance
+      and display their table.
+    </p>
+
+    <div id="reader"></div>
+
+    <div class="buttons">
+      <button id="start">Start Scanner</button>
+      <button id="next" disabled>
+        Scan Next Attendee
+      </button>
+      <button id="stop" disabled>
+        Stop Camera
+      </button>
+    </div>
+
+    <div id="result">
+      <h3>Ready to scan</h3>
+      <p>Tap Start Scanner and allow camera access.</p>
+    </div>
+
+    <p id="connection">
+      Connecting to attendance sheet…
+    </p>
+  </main>
+
+  <!-- Apps Script bridge -->
+  <iframe id="bridge" title="Attendance connection"></iframe>
+
+  <script>
+    // Replace with your deployed Apps Script Web App URL.
+    const APPS_SCRIPT_URL =
+      "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+
+    const bridge = document.getElementById("bridge");
+    const resultBox = document.getElementById("result");
+    const connection = document.getElementById("connection");
+
+    const startButton = document.getElementById("start");
+    const nextButton = document.getElementById("next");
+    const stopButton = document.getElementById("stop");
+
+    let scanner;
+    let cameraRunning = false;
+    let busy = false;
+    let requestCounter = 0;
+    let pendingRequestId = null;
+
+    // Load the Apps Script bridge.
+    bridge.src = APPS_SCRIPT_URL;
+
+    bridge.addEventListener("load", function() {
+      connection.textContent =
+        "Attendance connection loaded.";
+    });
+
+    window.addEventListener("message", function(event) {
+      // Accept responses only from our bridge iframe.
+      if (event.source !== bridge.contentWindow) return;
+
+      if (
+        !event.data ||
+        event.data.type !== "ATC_PMC_ATTENDANCE_RESULT"
+      ) {
+        return;
+      }
+
+      if (event.data.requestId !== pendingRequestId) {
+        return;
+      }
+
+      pendingRequestId = null;
+      busy = false;
+
+      displayResult(
+        event.data.result || {
+          status: "ERROR",
+          message: "Empty response."
+        }
+      );
+
+      nextButton.disabled = false;
+    });
+
+    startButton.addEventListener(
+      "click",
+      startScanner
+    );
+
+    nextButton.addEventListener(
+      "click",
+      scanNext
+    );
+
+    stopButton.addEventListener(
+      "click",
+      stopCamera
+    );
+
+    async function startScanner() {
+      if (cameraRunning) return;
+      if (!isConfigured()) return;
+
+      try {
+        scanner = new Html5Qrcode("reader");
+
+        await scanner.start(
+          { facingMode: "environment" },
+          {
+            fps: 10,
+            qrbox: {
+              width: 250,
+              height: 250
+            }
+          },
+          onQrSuccess,
+          function() {}
+        );
+
+        cameraRunning = true;
+
+        startButton.disabled = true;
+        nextButton.disabled = true;
+        stopButton.disabled = false;
+
+        showMessage(
+          "Scanner active",
+          "Point the camera at the attendee's QR code.",
+          ""
+        );
+
+      } catch (error) {
+        showMessage(
+          "Camera error",
+          error && error.message
+            ? error.message
+            : String(error),
+          "error"
+        );
+      }
+    }
+
+    async function onQrSuccess(decodedText) {
+      if (busy || pendingRequestId !== null) return;
+
+      busy = true;
+      pendingRequestId =
+        "scan-" + (++requestCounter);
+
+      const requestId = pendingRequestId;
+
+      try {
+        await stopCamera(false);
+      } catch (e) {}
+
+      showMessage(
+        "Checking attendee…",
+        "Please wait while attendance is recorded.",
+        ""
+      );
+
+      // Send the QR content to the Apps Script iframe.
+      // The bridge validates event.origin before processing.
+      bridge.contentWindow.postMessage({
+        type: "ATC_PMC_SCAN",
+        requestId: requestId,
+        qrContent: decodedText
+      }, "*");
+    }
+
+    async function scanNext() {
+      if (pendingRequestId !== null || busy) return;
+
+      resultBox.className = "";
+      resultBox.innerHTML =
+        "<h3>Ready for next attendee</h3>" +
+        "<p>Tap Start Scanner.</p>";
+
+      nextButton.disabled = true;
+
+      await startScanner();
+    }
+
+    async function stopCamera(updateButtons = true) {
+      if (scanner && cameraRunning) {
+        await scanner.stop();
+        await scanner.clear();
+      }
+
+      cameraRunning = false;
+
+      if (updateButtons) {
+        startButton.disabled = false;
+        stopButton.disabled = true;
+      }
+    }
+
+    function displayResult(response) {
+      const status = response.status || "ERROR";
+      const name = escapeHtml(response.name || "");
+      const table = escapeHtml(
+        response.tableNumber || ""
+      );
+      const timestamp = escapeHtml(
+        response.timestamp || ""
+      );
+      const message = escapeHtml(
+        response.message || ""
+      );
+
+      if (status === "CHECKED IN") {
+        resultBox.className = "success";
+
+        resultBox.innerHTML =
+          "<h2>CHECK-IN SUCCESSFUL</h2>" +
+          "<div class='attendee'>" + name + "</div>" +
+          "<div class='table'>" + table + "</div>" +
+          "<div class='time'>" + timestamp + "</div>";
+
+      } else if (status === "DUPLICATE") {
+        resultBox.className = "duplicate";
+
+        resultBox.innerHTML =
+          "<h2>ALREADY CHECKED IN</h2>" +
+          "<div class='attendee'>" + name + "</div>" +
+          (table
+            ? "<div class='table'>" + table + "</div>"
+            : "") +
+          "<p>" + message + "</p>";
+
+      } else {
+        resultBox.className = "error";
+
+        resultBox.innerHTML =
+          "<h2>" + escapeHtml(status) + "</h2>" +
+          "<p>" + message + "</p>";
+      }
+    }
+
+    function showMessage(title, message, className) {
+      resultBox.className = className || "";
+
+      resultBox.innerHTML =
+        "<h3>" + escapeHtml(title) + "</h3>" +
+        "<p>" + escapeHtml(message) + "</p>";
+    }
+
+    function escapeHtml(value) {
+      return String(value || "").replace(
+        /[&<>"']/g,
+        function(ch) {
+          return {
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#039;"
+          }[ch];
+        }
+      );
+    }
+
+    function isConfigured() {
+      if (
+        APPS_SCRIPT_URL.indexOf("PASTE_YOUR_") !== -1
+      ) {
+        showMessage(
+          "Setup required",
+          "Add your deployed Apps Script Web App URL to index.html.",
+          "error"
+        );
+
+        return false;
+      }
+
+      return true;
+    }
+  </script>
+</body>
+</html>
