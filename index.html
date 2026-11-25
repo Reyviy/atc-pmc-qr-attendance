@@ -199,49 +199,48 @@
     let pendingRequestId = null;
 
   // Receive attendance results from Apps Script.
-  window.addEventListener("message", function(event) {
-  
-    console.log("Apps Script response:", {
-      origin: event.origin,
-      data: event.data
-    });
-  
-    if (!event.data) return;
-  
-    if (
-      event.data.type !==
-      "ATC_PMC_ATTENDANCE_RESULT"
-    ) {
-      return;
-    }
-  
-    // Accept responses from the Apps Script iframe.
-    if (event.source !== bridge.contentWindow) {
-      console.warn("Unexpected message source.");
-      return;
-    }
-  
-   if (event.data.requestId !== pendingRequestId) {
-      console.warn("Ignored outdated scan response.");
-      return;
-    }
-    
-    bridgeReady = true;
-    pendingRequestId = null;
-    busy = false;
-  
-    displayResult(
-      event.data.result || {
-        status: "ERROR",
-        message: "Empty response."
-      }
-    );
-  
-    nextButton.disabled = false;
-    startButton.disabled = true;
-    stopButton.disabled = true;
-  
+window.addEventListener("message", function(event) {
+
+  console.log("MESSAGE RECEIVED:", {
+    origin: event.origin,
+    sourceIsBridge: event.source === bridge.contentWindow,
+    data: event.data,
+    pendingRequestId: pendingRequestId
   });
+
+  if (!event.data) return;
+
+  if (event.data.type !== "ATC_PMC_ATTENDANCE_RESULT") {
+    console.warn("Ignored: Incorrect message type.");
+    return;
+  }
+
+  if (event.source !== bridge.contentWindow) {
+    console.warn("Ignored: Message source does not match iframe.");
+    return;
+  }
+
+  if (event.data.requestId !== pendingRequestId) {
+    console.warn("Ignored: Request ID does not match.");
+    return;
+  }
+
+  bridgeReady = true;
+  pendingRequestId = null;
+  busy = false;
+
+  displayResult(event.data.result || {
+    status: "ERROR",
+    message: "Empty response."
+  });
+
+  nextButton.disabled = false;
+  startButton.disabled = true;
+  stopButton.disabled = true;
+
+  connection.textContent = "Attendance connection ready.";
+
+});
   
   // Register iframe load listener BEFORE setting its URL.
   bridge.addEventListener("load", function() {
