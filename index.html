@@ -197,51 +197,60 @@
     let bridgeReady = false;
     let requestCounter = 0;
     let pendingRequestId = null;
-
-  // Receive attendance results from Apps Script.
-window.addEventListener("message", function(event) {
-
-  console.log("MESSAGE RECEIVED:", {
-    origin: event.origin,
-    sourceIsBridge: event.source === bridge.contentWindow,
-    data: event.data,
-    pendingRequestId: pendingRequestId
-  });
-
-  if (!event.data) return;
-
-  if (event.data.type !== "ATC_PMC_ATTENDANCE_RESULT") {
-    console.warn("Ignored: Incorrect message type.");
-    return;
-  }
-
-  if (event.source !== bridge.contentWindow) {
-    console.warn("Ignored: Message source does not match iframe.");
-    return;
-  }
-
-  if (event.data.requestId !== pendingRequestId) {
-    console.warn("Ignored: Request ID does not match.");
-    return;
-  }
-
-  bridgeReady = true;
-  pendingRequestId = null;
-  busy = false;
-
-  displayResult(event.data.result || {
-    status: "ERROR",
-    message: "Empty response."
-  });
-
-  nextButton.disabled = false;
-  startButton.disabled = true;
-  stopButton.disabled = true;
-
-  connection.textContent = "Attendance connection ready.";
-
-});
   
+  // Receive attendance results from Apps Script.
+  window.addEventListener("message", function(event) {
+  
+    console.log("MESSAGE RECEIVED:", {
+      origin: event.origin,
+      sourceIsBridge: event.source === bridge.contentWindow,
+      data: event.data,
+      pendingRequestId: pendingRequestId
+    });
+  
+    if (!event.data) return;
+  
+    if (event.data.type !== "ATC_PMC_ATTENDANCE_RESULT") {
+      return;
+    }
+  
+    // Validate the Apps Script response origin.
+    const isGoogleScriptOrigin =
+      event.origin.endsWith("script.googleusercontent.com");
+  
+    if (!isGoogleScriptOrigin) {
+      console.warn("Rejected unexpected origin:", event.origin);
+      return;
+    }
+  
+    // Validate request ID.
+    if (event.data.requestId !== pendingRequestId) {
+      console.warn("Request ID mismatch:", {
+        received: event.data.requestId,
+        expected: pendingRequestId
+      });
+      return;
+    }
+  
+    // Accept the attendance result.
+    bridgeReady = true;
+    pendingRequestId = null;
+    busy = false;
+  
+    displayResult(event.data.result || {
+      status: "ERROR",
+      message: "Empty response."
+    });
+  
+    nextButton.disabled = false;
+    startButton.disabled = true;
+    stopButton.disabled = true;
+  
+    connection.textContent = "Attendance connection ready.";
+  
+  });
+  
+    
   // Register iframe load listener BEFORE setting its URL.
   bridge.addEventListener("load", function() {
   
