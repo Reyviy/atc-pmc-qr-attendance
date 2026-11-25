@@ -202,9 +202,10 @@
     // Receive messages from Apps Script.
     window.addEventListener("message", function(event) {
     
-      if (event.source !== bridge.contentWindow) {
-        return;
-      }
+      console.log("Message received:", {
+        origin: event.origin,
+        data: event.data
+      });
     
       if (!event.data) return;
     
