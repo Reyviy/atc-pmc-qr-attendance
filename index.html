@@ -171,11 +171,19 @@
     </p>
   </main>
 
+  <!-- Apps Script bridge -->
+  <iframe
+    id="bridge"
+    name="bridge"
+    title="Attendance connection">
+  </iframe>
+
   <script>
     // Replace with your deployed Apps Script Web App URL.
     const APPS_SCRIPT_URL =
       "https://script.google.com/macros/s/AKfycbxRyZtVZbhyaUa-Z3y18PDTKmVd7-eHTaqia0UvlF1P93OTmroeyJYyTV7dLcQzDGbN5A/exec";
 
+    const bridge = document.getElementById("bridge");
     const resultBox = document.getElementById("result");
     const connection = document.getElementById("connection");
 
@@ -189,37 +197,8 @@
     let requestCounter = 0;
     let pendingRequestId = null;
 
-    
-    function handleAttendanceResponse(response) {
-      if (!response) return;
-    
-      if (
-        response.type !==
-        "ATC_PMC_ATTENDANCE_RESULT"
-      ) {
-        return;
-      }
-    
-      if (response.requestId !== pendingRequestId) {
-        return;
-      }
-    
-      pendingRequestId = null;
-      busy = false;
-    
-      displayResult(
-        response.result || {
-          status: "ERROR",
-          message: "Empty response from Apps Script."
-        }
-      );
-    
-      nextButton.disabled = false;
-      startButton.disabled = true;
-    
-      connection.textContent =
-        "Attendance response received.";
-    }
+    // Load the Apps Script bridge.
+    bridge.src = APPS_SCRIPT_URL;
 
     bridge.addEventListener("load", function() {
       if (pendingRequestId === null) {
@@ -320,7 +299,7 @@
       }
     }
 
-   
+    
     async function onQrSuccess(decodedText) {
       if (busy || pendingRequestId !== null) return;
     
@@ -344,41 +323,17 @@
       );
     
       connection.textContent =
-        "Sending attendance request…";
+        "Sending attendance request to Google Sheets…";
     
+      // Send the scan using GET parameters.
       const scanUrl = new URL(APPS_SCRIPT_URL);
     
       scanUrl.searchParams.set("action", "scan");
       scanUrl.searchParams.set("name", decodedText);
       scanUrl.searchParams.set("requestId", requestId);
-      scanUrl.searchParams.set(
-        "callback",
-        "handleAttendanceResponse"
-      );
     
-      const script = document.createElement("script");
-    
-      script.src = scanUrl.toString();
-      script.async = true;
-    
-      script.onerror = function() {
-        if (pendingRequestId !== requestId) return;
-    
-        pendingRequestId = null;
-        busy = false;
-    
-        showMessage(
-          "Connection error",
-          "Could not receive a response from Apps Script. Check your internet connection and try again.",
-          "error"
-        );
-    
-        nextButton.disabled = false;
-        connection.textContent =
-          "Unable to receive attendance response.";
-      };
-    
-      document.body.appendChild(script);
+      // Navigate the Apps Script iframe to the scan request.
+      bridge.src = scanUrl.toString();
     }
 
 
