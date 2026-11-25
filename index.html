@@ -175,7 +175,11 @@
   </main>
 
   <!-- Apps Script bridge -->
-  <iframe id="bridge" title="Attendance connection"></iframe>
+  <iframe
+    id="bridge"
+    name="bridge"
+    title="Attendance connection">
+  </iframe>
 
   <script>
     // Replace with your deployed Apps Script Web App URL.
@@ -205,39 +209,30 @@
     });
 
     window.addEventListener("message", function(event) {
-      // Accept responses only from our bridge iframe.
-      if (event.source !== bridge.contentWindow) return;
-      
+      if (!event.data) return;
+    
       if (
-        event.data &&
-        event.data.type === "ATC_PMC_BRIDGE_READY"
-      ) {
-        connection.textContent =
-          "Apps Script bridge is ready.";
-        return;
-      }
-
-      if (
-        !event.data ||
-        event.data.type !== "ATC_PMC_ATTENDANCE_RESULT"
+        event.data.type !==
+        "ATC_PMC_ATTENDANCE_RESULT"
       ) {
         return;
       }
-
+    
+      // Only accept a response for the active scan.
       if (event.data.requestId !== pendingRequestId) {
         return;
       }
-
+    
       pendingRequestId = null;
       busy = false;
-
+    
       displayResult(
         event.data.result || {
           status: "ERROR",
           message: "Empty response."
         }
       );
-
+    
       nextButton.disabled = false;
     });
 
@@ -320,11 +315,31 @@
 
       // Send the QR content to the Apps Script iframe.
       // The bridge validates event.origin before processing.
-      bridge.contentWindow.postMessage({
-        type: "ATC_PMC_SCAN",
-        requestId: requestId,
-        qrContent: decodedText
-      }, "*");
+      // Submit the scan to Apps Script using a POST request.
+      const form = document.createElement("form");
+      
+      form.method = "POST";
+      form.action = APPS_SCRIPT_URL;
+      form.target = "bridge";
+      form.style.display = "none";
+      
+      function addField(fieldName, fieldValue) {
+        const input = document.createElement("input");
+      
+        input.type = "hidden";
+        input.name = fieldName;
+        input.value = fieldValue;
+      
+        form.appendChild(input);
+      }
+      
+      addField("action", "scan");
+      addField("name", decodedText);
+      addField("requestId", requestId);
+      
+      document.body.appendChild(form);
+      form.submit();
+      form.remove();
     }
 
     async function scanNext() {
