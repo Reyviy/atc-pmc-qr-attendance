@@ -194,27 +194,32 @@
     let scanner;
     let cameraRunning = false;
     let busy = false;
+    let bridgeReady = false;
     let requestCounter = 0;
     let pendingRequestId = null;
 
     // Load the Apps Script bridge.
-    bridge.src = APPS_SCRIPT_URL;
-
-    bridge.addEventListener("load", function() {
-      if (pendingRequestId === null) {
-        connection.textContent =
-          "Attendance connection loaded.";
-      }
-    });
-
+    // Receive messages from Apps Script.
     window.addEventListener("message", function(event) {
-      if (!event.data) return;
     
-      // Accept messages only from the Apps Script iframe.
       if (event.source !== bridge.contentWindow) {
         return;
       }
     
+      if (!event.data) return;
+    
+      // Bridge connection confirmation.
+      if (event.data.type === "ATC_PMC_BRIDGE_READY") {
+    
+        bridgeReady = true;
+    
+        connection.textContent =
+          "Attendance connection ready.";
+    
+        return;
+      }
+    
+      // Attendance result.
       if (
         event.data.type !==
         "ATC_PMC_ATTENDANCE_RESULT"
@@ -222,7 +227,7 @@
         return;
       }
     
-      // Ignore responses from previous scans.
+      // Ignore previous scan responses.
       if (event.data.requestId !== pendingRequestId) {
         return;
       }
@@ -239,6 +244,18 @@
     
       nextButton.disabled = false;
       startButton.disabled = true;
+    
+    });
+    
+    // Load the Apps Script bridge AFTER registering the listener.
+    bridge.src = APPS_SCRIPT_URL;
+    
+    bridge.addEventListener("load", function() {
+    
+      connection.textContent = bridgeReady
+        ? "Attendance connection ready."
+        : "Loading attendance connection...";
+    
     });
 
     startButton.addEventListener(
@@ -259,6 +276,16 @@
     async function startScanner() {
       if (cameraRunning) return;
       if (!isConfigured()) return;
+      
+      if (!bridgeReady) {
+        showMessage(
+          "Connecting...",
+          "Please wait for the attendance connection to become ready.",
+          "error"
+        );
+      
+        return;
+      }
 
       try {
         scanner = new Html5Qrcode("reader");
@@ -299,9 +326,20 @@
       }
     }
 
+     async function onQrSuccess(decodedText) {
     
-    async function onQrSuccess(decodedText) {
       if (busy || pendingRequestId !== null) return;
+    
+      if (!bridgeReady) {
+    
+        showMessage(
+          "Connection error",
+          "Attendance bridge is not ready. Please wait.",
+          "error"
+        );
+    
+        return;
+      }
     
       busy = true;
     
@@ -311,9 +349,13 @@
       const requestId = pendingRequestId;
     
       try {
+    
         await stopCamera(false);
+    
       } catch (error) {
+    
         console.error("Camera stop error:", error);
+    
       }
     
       showMessage(
@@ -325,17 +367,16 @@
       connection.textContent =
         "Sending attendance request to Google Sheets…";
     
-      // Send the scan using GET parameters.
-      const scanUrl = new URL(APPS_SCRIPT_URL);
+      // Send QR content directly to Scanner.html.
+      bridge.contentWindow.postMessage({
     
-      scanUrl.searchParams.set("action", "scan");
-      scanUrl.searchParams.set("name", decodedText);
-      scanUrl.searchParams.set("requestId", requestId);
+        type: "ATC_PMC_SCAN",
+        requestId: requestId,
+        qrContent: decodedText
     
-      // Navigate the Apps Script iframe to the scan request.
-      bridge.src = scanUrl.toString();
+      }, "*");
+    
     }
-
 
     async function scanNext() {
       if (pendingRequestId !== null || busy) return;
