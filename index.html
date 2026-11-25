@@ -251,12 +251,34 @@
     bridge.src = APPS_SCRIPT_URL;
     
     bridge.addEventListener("load", function() {
+      connection.textContent =
+        "Apps Script loaded. Checking bridge...";
     
-      connection.textContent = bridgeReady
-        ? "Attendance connection ready."
-        : "Loading attendance connection...";
+      bridgeReady = false;
+    
+      // Ask Scanner.html to confirm that it is ready.
+      bridge.contentWindow.postMessage({
+        type: "ATC_PMC_BRIDGE_PING"
+      }, "*");
+    
+      // Check whether the bridge responds.
+      setTimeout(function() {
+    
+        if (!bridgeReady) {
+    
+          connection.textContent =
+            "ERROR: Apps Script loaded but bridge did not respond.";
+    
+          console.error(
+            "No ATC_PMC_BRIDGE_READY response received."
+          );
+    
+        }
+    
+      }, 10000);
     
     });
+
 
     startButton.addEventListener(
       "click",
