@@ -198,87 +198,64 @@
     let requestCounter = 0;
     let pendingRequestId = null;
 
-    // Load the Apps Script bridge.
-    // Receive messages from Apps Script.
-    window.addEventListener("message", function(event) {
-    
-      console.log("Message received:", {
-        origin: event.origin,
-        data: event.data
-      });
-    
-      if (!event.data) return;
-    
-      // Bridge connection confirmation.
-      if (event.data.type === "ATC_PMC_BRIDGE_READY") {
-    
-        bridgeReady = true;
-    
-        connection.textContent =
-          "Attendance connection ready.";
-    
-        return;
-      }
-    
-      // Attendance result.
-      if (
-        event.data.type !==
-        "ATC_PMC_ATTENDANCE_RESULT"
-      ) {
-        return;
-      }
-    
-      // Ignore previous scan responses.
-      if (event.data.requestId !== pendingRequestId) {
-        return;
-      }
-    
-      pendingRequestId = null;
-      busy = false;
-    
-      displayResult(
-        event.data.result || {
-          status: "ERROR",
-          message: "Empty response."
-        }
-      );
-    
-      nextButton.disabled = false;
-      startButton.disabled = true;
-    
+  // Receive attendance results from Apps Script.
+  window.addEventListener("message", function(event) {
+  
+    console.log("Apps Script response:", {
+      origin: event.origin,
+      data: event.data
     });
+  
+    if (!event.data) return;
+  
+    if (
+      event.data.type !==
+      "ATC_PMC_ATTENDANCE_RESULT"
+    ) {
+      return;
+    }
+  
+    // Accept responses from the Apps Script iframe.
+    if (event.source !== bridge.contentWindow) {
+      console.warn("Unexpected message source.");
+      return;
+    }
+  
+   if (event.data.requestId !== pendingRequestId) {
+      console.warn("Ignored outdated scan response.");
+      return;
+    }
     
-    // Load the Apps Script bridge AFTER registering the listener.
-    bridge.src = APPS_SCRIPT_URL;
-    
-    bridge.addEventListener("load", function() {
-      connection.textContent =
-        "Apps Script loaded. Checking bridge...";
-    
-      bridgeReady = false;
-    
-      // Ask Scanner.html to confirm that it is ready.
-      bridge.contentWindow.postMessage({
-        type: "ATC_PMC_BRIDGE_PING"
-      }, "*");
-    
-      // Check whether the bridge responds.
-      setTimeout(function() {
-    
-        if (!bridgeReady) {
-    
-          connection.textContent =
-            "ERROR: Apps Script loaded but bridge did not respond.";
-    
-          console.error(
-            "No ATC_PMC_BRIDGE_READY response received."
-          );
-    
-        }
-    
-      }, 10000);
-    
-    });
+    bridgeReady = true;
+    pendingRequestId = null;
+    busy = false;
+  
+    displayResult(
+      event.data.result || {
+        status: "ERROR",
+        message: "Empty response."
+      }
+    );
+  
+    nextButton.disabled = false;
+    startButton.disabled = true;
+    stopButton.disabled = true;
+  
+  });
+  
+  // Register iframe load listener BEFORE setting its URL.
+  bridge.addEventListener("load", function() {
+  
+    bridgeReady = true;
+  
+    connection.textContent =
+      "Attendance connection ready.";
+  
+  });
+  
+  // Load Apps Script bridge.
+  bridge.src = APPS_SCRIPT_URL;
+  
 
 
     startButton.addEventListener(
@@ -348,8 +325,7 @@
         );
       }
     }
-
-     async function onQrSuccess(decodedText) {
+    async function onQrSuccess(decodedText) {
     
       if (busy || pendingRequestId !== null) return;
     
@@ -357,7 +333,7 @@
     
         showMessage(
           "Connection error",
-          "Attendance bridge is not ready. Please wait.",
+          "Attendance bridge is not ready.",
           "error"
         );
     
@@ -388,18 +364,21 @@
       );
     
       connection.textContent =
-        "Sending attendance request to Google Sheets…";
+        "Processing attendance in Google Sheets…";
     
-      // Send QR content directly to Scanner.html.
-      bridge.contentWindow.postMessage({
+      // Create Apps Script scan URL.
+      const scanUrl = new URL(APPS_SCRIPT_URL);
     
-        type: "ATC_PMC_SCAN",
-        requestId: requestId,
-        qrContent: decodedText
+      scanUrl.searchParams.set("action", "scan");
+      scanUrl.searchParams.set("name", decodedText);
+      scanUrl.searchParams.set("requestId", requestId);
     
-      }, "*");
+      // Navigate iframe to process the scan.
+      bridgeReady = false;
+      bridge.src = scanUrl.toString();
     
     }
+
 
     async function scanNext() {
       if (pendingRequestId !== null || busy) return;
