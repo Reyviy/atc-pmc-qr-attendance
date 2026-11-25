@@ -134,10 +134,7 @@
     }
 
     iframe {
-      width: 100%;
-      height: 180px;
-      border: 2px solid red;
-      margin-top: 15px;
+      display: none;
     }
   </style>
 </head>
@@ -204,12 +201,19 @@
     bridge.src = APPS_SCRIPT_URL;
 
     bridge.addEventListener("load", function() {
-      connection.textContent =
-        "Attendance connection loaded.";
+      if (pendingRequestId === null) {
+        connection.textContent =
+          "Attendance connection loaded.";
+      }
     });
 
     window.addEventListener("message", function(event) {
       if (!event.data) return;
+    
+      // Accept messages only from the Apps Script iframe.
+      if (event.source !== bridge.contentWindow) {
+        return;
+      }
     
       if (
         event.data.type !==
@@ -218,7 +222,7 @@
         return;
       }
     
-      // Only accept a response for the active scan.
+      // Ignore responses from previous scans.
       if (event.data.requestId !== pendingRequestId) {
         return;
       }
@@ -234,6 +238,7 @@
       );
     
       nextButton.disabled = false;
+      startButton.disabled = true;
     });
 
     startButton.addEventListener(
@@ -294,53 +299,43 @@
       }
     }
 
+    
     async function onQrSuccess(decodedText) {
       if (busy || pendingRequestId !== null) return;
-
+    
       busy = true;
+    
       pendingRequestId =
         "scan-" + (++requestCounter);
-
+    
       const requestId = pendingRequestId;
-
+    
       try {
         await stopCamera(false);
-      } catch (e) {}
-
+      } catch (error) {
+        console.error("Camera stop error:", error);
+      }
+    
       showMessage(
         "Checking attendee…",
         "Please wait while attendance is recorded.",
         ""
       );
-
-      // Send the QR content to the Apps Script iframe.
-      // The bridge validates event.origin before processing.
-      // Submit the scan to Apps Script using a POST request.
-      const form = document.createElement("form");
-      
-      form.method = "POST";
-      form.action = APPS_SCRIPT_URL;
-      form.target = "bridge";
-      form.style.display = "none";
-      
-      function addField(fieldName, fieldValue) {
-        const input = document.createElement("input");
-      
-        input.type = "hidden";
-        input.name = fieldName;
-        input.value = fieldValue;
-      
-        form.appendChild(input);
-      }
-      
-      addField("action", "scan");
-      addField("name", decodedText);
-      addField("requestId", requestId);
-      
-      document.body.appendChild(form);
-      form.submit();
-      form.remove();
+    
+      connection.textContent =
+        "Sending attendance request to Google Sheets…";
+    
+      // Send the scan using GET parameters.
+      const scanUrl = new URL(APPS_SCRIPT_URL);
+    
+      scanUrl.searchParams.set("action", "scan");
+      scanUrl.searchParams.set("name", decodedText);
+      scanUrl.searchParams.set("requestId", requestId);
+    
+      // Navigate the Apps Script iframe to the scan request.
+      bridge.src = scanUrl.toString();
     }
+
 
     async function scanNext() {
       if (pendingRequestId !== null || busy) return;
